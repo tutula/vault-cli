@@ -211,10 +211,11 @@ export async function loadVault(password) {
     throw err;
   }
   const env = JSON.parse(raw.toString("utf8"));
-  const plain =
-    env.backend === "dpapi"
-      ? await dpapiUnprotect(Buffer.from(env.blob, "base64"))
-      : decryptWithPassphrase(Buffer.from(env.blob, "base64"), requiredPassword(password));
+  // 兼容旧格式：早期版本用 `alg: "dpapi-currentuser"`，后来改成 `backend: "dpapi"`
+  const isDpapi = env.backend === "dpapi" || env.alg === "dpapi-currentuser";
+  const plain = isDpapi
+    ? await dpapiUnprotect(Buffer.from(env.blob, "base64"))
+    : decryptWithPassphrase(Buffer.from(env.blob, "base64"), requiredPassword(password));
   return JSON.parse(plain.toString("utf8"));
 }
 

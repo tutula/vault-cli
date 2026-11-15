@@ -115,6 +115,16 @@ await test("临时目录不在 git 工作区内", async () => {
   assert.equal(r.ok, true);
 });
 
+console.log("旧格式兼容");
+await test("旧版 alg=dpapi-currentuser 应走 DPAPI 而不是要求主密码", async () => {
+  const { writeFile } = await import("node:fs/promises");
+  const { VAULT_FILE } = await import("./store.mjs");
+  const { loadVault } = await import("./store.mjs");
+  // 伪造一个旧格式信封：blob 是无效密文，应当报 DPAPI 错误
+  await writeFile(VAULT_FILE, JSON.stringify({ version: 1, alg: "dpapi-currentuser", blob: "AAAA" }), "utf8");
+  await assert.rejects(loadVault(), (err) => /DPAPI/.test(String(err && err.message)) && !/主密码/.test(String(err && err.message)));
+});
+
 await rm(sandbox, { recursive: true, force: true });
 console.log(`\n通过 ${passed} 项`);
 if (process.exitCode) {

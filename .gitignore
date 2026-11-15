@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.env
+.env.*
+.venv/
+node_modules/
+.DS_Store
+Thumbs.db
+out/
+*.log
+
+# 凭据数据：绝不提交
+*.enc
+vault.enc
+vault.audit.log
+.vault-cli/

@@ -117,7 +117,14 @@ function runPowerShell(script, payload) {
     const err = [];
     child.stdout.on("data", (c) => out.push(String(c)));
     child.stderr.on("data", (c) => err.push(String(c)));
-    child.on("error", rejectP);
+    child.on("error", (err) =>
+      rejectP(
+        new Error(
+          `DPAPI 失败（无法启动 powershell：${err.message}）\n` +
+            "DPAPI 仅存在于 Windows；Linux/macOS 请改用 VAULT_BACKEND=passphrase + VAULT_MASTER_PASSWORD。",
+        ),
+      ),
+    );
     child.on("close", (code) => {
       if (code === 0) return resolveP(out.join(""));
       const msg = err.join("").trim().split(/\r?\n/).slice(0, 3).join(" ");
@@ -213,10 +220,15 @@ export async function loadVault(password) {
   const env = JSON.parse(raw.toString("utf8"));
   // 兼容旧格式：早期版本用 `alg: "dpapi-currentuser"`，后来改成 `backend: "dpapi"`
   const isDpapi = env.backend === "dpapi" || env.alg === "dpapi-currentuser";
-  const plain = isDpapi
-    ? await dpapiUnprotect(Buffer.from(env.blob, "base64"))
-    : decryptWithPassphrase(Buffer.from(env.blob, "base64"), requiredPassword(password));
-  return JSON.parse(plain.toString("utf8"));
+  if (isDpapi) {
+    // DPAPI 解出来的是明文字节（Buffer），需要这里自己 JSON.parse
+    const plain = await dpapiUnprotect(Buffer.from(env.blob, "base64"));
+    return JSON.parse(plain.toString("utf8"));
+  }
+  // passphrase：decryptWithPassphrase 内部已经 JSON.parse 过，返回的就是凭据对象。
+  // 修复点：原来对返回对象又做了一次 JSON.parse(plain.toString()) → "[object Object]" 报错，
+  // 导致 Linux/macOS（passphrase 后端）能写不能读。
+  return decryptWithPassphrase(Buffer.from(env.blob, "base64"), requiredPassword(password));
 }
 
 /**

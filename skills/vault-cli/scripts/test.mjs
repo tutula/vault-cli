@@ -8,7 +8,9 @@
  * 2. Base32 解码
  * 3. 强密码生成的形态约束
  * 4. 主密码加密/解密往返，以及「错密码必须失败」
- * 5. 数据目录落点检查（不在 git 工作区内）
+ * 5. 凭据库读写往返（saveVault → loadVault，信封层）
+ * 6. 数据目录落点检查（不在 git 工作区内）
+ * 7. 旧格式（alg=dpapi-currentuser）识别
  *
  * 用法：node scripts/test.mjs
  */
@@ -113,6 +115,38 @@ console.log("数据落点");
 await test("临时目录不在 git 工作区内", async () => {
   const r = await checkNotInRepo();
   assert.equal(r.ok, true);
+});
+
+console.log("凭据库读写往返");
+// 这条覆盖的是 cli 真正用的那层（saveVault → loadVault）。
+// 只测 encryptWithPassphrase/decryptWithPassphrase 会漏掉信封层：
+// 曾有 bug 是 loadVault 对已解析的对象再做一次 JSON.parse，Linux 上能写不能读。
+await test("passphrase 后端：saveVault 写入后 loadVault 能读回", async () => {
+  const prevBackend = process.env.VAULT_BACKEND;
+  process.env.VAULT_BACKEND = "passphrase"; // 跨平台都走主密码后端，不依赖 PowerShell
+  try {
+    const { saveVault, loadVault } = await import("./store.mjs");
+    const vault = {
+      demo: { user: "alice", password: "pw-demo", totp: "JBSWY3DPEHPK3PXP", url: "", note: "", updatedAt: new Date().toISOString() },
+    };
+    await saveVault(vault, "master-for-test");
+    const back = await loadVault("master-for-test");
+    assert.deepEqual(back, vault);
+  } finally {
+    if (prevBackend === undefined) delete process.env.VAULT_BACKEND;
+    else process.env.VAULT_BACKEND = prevBackend;
+  }
+});
+await test("passphrase 后端：错主密码必须失败", async () => {
+  const prevBackend = process.env.VAULT_BACKEND;
+  process.env.VAULT_BACKEND = "passphrase";
+  try {
+    const { loadVault } = await import("./store.mjs");
+    await assert.rejects(loadVault("wrong-master"), /主密码不对|解密失败/);
+  } finally {
+    if (prevBackend === undefined) delete process.env.VAULT_BACKEND;
+    else process.env.VAULT_BACKEND = prevBackend;
+  }
 });
 
 console.log("旧格式兼容");
